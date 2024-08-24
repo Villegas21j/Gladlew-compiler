@@ -1,0 +1,65 @@
+name: Build and Test Java Project
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+      - name: Detect build tool
+        id: detect_tool
+        run: |
+          if [ -f build.gradle ]; then
+            echo "tool=gradle" >> $GITHUB_OUTPUT
+          elif [ -f pom.xml ]; then
+            echo "tool=maven" >> $GITHUB_OUTPUT
+          else
+            echo "tool=unknown" >> $GITHUB_OUTPUT
+            echo "::error::No se encontró un archivo build.gradle ni pom.xml"
+          fi
+      - name: Build project
+        run: |
+          if [ "${{ steps.detect_tool.outputs.tool }}" == "gradle" ]; then
+            ./gradlew clean build
+          elif [ "${{ steps.detect_tool.outputs.tool }}" == "maven" ]; then
+            mvn clean package
+          else
+            echo "::error::Herramienta de construcción desconocida"
+          fi
+      - name: Run tests
+        if: steps.detect_tool.outputs.outputs.tool == 'gradle'
+        run: ./gradlew test
+      - name: Test reports
+        if: steps.detect_tool.outputs.tool == 'gradle'
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-reports
+          path: build/reports/tests
+      - name: Comment on issue
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.issues.createComment({
+              issue_number: context.issue.number,
+              body: `
+                **Construcción completada.**
+
+                * **Estado:** ${job.status}
+                * **Artefactos:** Los artefactos de la construcción están disponibles en la pestaña "Actions" de este repositorio.
+
+                **Para descargar los artefactos:**
+                1. Ve a la pestaña "Actions".
+                2. Selecciona la ejecución correspondiente a esta construcción.
+                3. En la sección "Artifacts", haz clic en el artefacto que deseas descargar.
+
+                **¡No dudes en dejar un comentario si tienes alguna pregunta!**
+              `
+            })
